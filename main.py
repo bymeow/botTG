@@ -1,5 +1,5 @@
-from aiohttp import web
 import asyncio
+from aiohttp import web
 import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
@@ -75,17 +75,25 @@ async def chat_handler(message: types.Message):
         await message.answer(f"⚠️ Произошла ошибка: {e}. Попробуй позже.")
 
 
+async def handle(request):
+    return web.Response(text="OK")
+
 async def main():
-    # Сначала запускаем веб-сервер, чтобы Koyeb сразу увидел порт 8000
+    # 1. Запускаем мини-сервер на порту 8000
     app = web.Application()
-    app.router.add_get('/', lambda r: web.Response(text="OK"))
+    app.router.add_get('/', handle)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', 8000)
     await site.start()
-
+    
     print("🤖 БОТ ЗАПУЩЕН!")
-    # Только ПОСЛЕ запуска сервера начинаем слушать Телеграм
+    
+    # 2. Запускаем самого бота
     await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+    
        
 
