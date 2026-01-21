@@ -61,16 +61,6 @@ tutor = SmartAITutor(api_key=GROQ_API_KEY)
 
 # --- Хендлеры ---
 
-@dp.message(Command("start"))
-async def start_cmd(message: types.Message):
-    welcome_text = (
-        "👋 Привет! Я твой ИИ-репетитор по информатике!\n\n"
-        "📚 Готов помочь с подготовкой к ЕГЭ\n"
-        "💡 Задавай любые вопросы по темам\n"
-        "🎯 Разберём сложные задачи вместе!"
-    )
-    await message.answer(welcome_text)
-
 @dp.message()
 async def chat_handler(message: types.Message):
     await bot.send_chat_action(message.chat.id, "typing")
@@ -79,6 +69,13 @@ async def chat_handler(message: types.Message):
         raw_answer = await tutor.get_ai_response(message.from_user.id, message.text)
         pretty_answer = styles.format_bot_response(raw_answer)
         
+        # СТАВИМ HTML. Твой текст уже содержит <b>, поэтому это всё исправит!
+        await message.answer(pretty_answer, parse_mode="HTML")
+        
+    except Exception as e:
+        logging.error(f"Ошибка: {e}")
+        # Если HTML сломается, отправим просто текст.
+        await message.answer(pretty_answer)
         # --- ФИКС ---
         # Используем обычный "Markdown" (без V2). 
         # Он самый надежный: смайлики работают, жирный текст работает.
