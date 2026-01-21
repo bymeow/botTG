@@ -1,3 +1,4 @@
+from aiohttp import web
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types
@@ -5,7 +6,6 @@ from aiogram.filters import Command
 from groq import Groq
 import config
 import styles
-from aiohttp import web
 from memory import MemoryManager
 
 # Включаем логирование, чтобы видеть ошибки в терминале
