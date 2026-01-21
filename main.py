@@ -75,25 +75,17 @@ async def chat_handler(message: types.Message):
         await message.answer(f"⚠️ Произошла ошибка: {e}. Попробуй позже.")
 
 
-# Функция для "обмана" Koyeb
-async def handle(request):
-    return web.Response(text="Bot is running!")
-
-async def start_web_server():
+async def main():
+    # Сначала запускаем веб-сервер, чтобы Koyeb сразу увидел порт 8000
     app = web.Application()
-    app.router.add_get('/', handle)
+    app.router.add_get('/', lambda r: web.Response(text="OK"))
     runner = web.AppRunner(app)
     await runner.setup()
-    # Koyeb по умолчанию ищет порт 8000
     site = web.TCPSite(runner, '0.0.0.0', 8000)
     await site.start()
 
-# Обнови свою функцию main:
-async def main():
-    # Запускаем мини-сервер для Koyeb
-    asyncio.create_task(start_web_server())
-    
     print("🤖 БОТ ЗАПУЩЕН!")
+    # Только ПОСЛЕ запуска сервера начинаем слушать Телеграм
     await dp.start_polling(bot)
        
 
