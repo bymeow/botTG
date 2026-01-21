@@ -62,23 +62,20 @@ async def start_cmd(message: types.Message):
 
 @dp.message()
 async def chat_handler(message: types.Message):
-    # Показываем статус "печатает..."
     await bot.send_chat_action(message.chat.id, "typing")
     
     try:
-        # Получаем ответ от ИИ через объект tutor, который мы создали выше
         raw_answer = await tutor.get_ai_response(message.from_user.id, message.text)
-        
-        # Форматируем текст через твой модуль styles
         pretty_answer = styles.format_bot_response(raw_answer)
         
-        # Отправляем ответ пользователю
-        await message.answer(pretty_answer, parse_mode="MarkdownV2")
+        # Используем обычный Markdown вместо MarkdownV2
+        # Он вернет жирный текст и списки, но не будет падать из-за точек
+        await message.answer(pretty_answer, parse_mode="Markdown")
         
     except Exception as e:
         logging.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА: {e}")
-        # Если ошибка, сообщаем пользователю
-        await message.answer(f"⚠️ Произошла ошибка: {e}. Попробуй позже.")
+        # Если Markdown все же ломается, отправим как обычный текст, чтобы бот не молчал
+        await message.answer(pretty_answer)
 
 # --- Мини-сервер для Koyeb ---
 async def handle(request):
