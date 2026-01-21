@@ -16,9 +16,12 @@ class SmartAITutor:
     def __init__(self, api_key):
         self.client = Groq(api_key=api_key)
         self.memory = MemoryManager()
+        # В промпте просим использовать жирный шрифт (**текст**) вместо заголовков (#), 
+        # чтобы старый Маркдаун их понимал красиво.
         self.system_prompt = (
             "Ты — опытный репетитор по информатике (ЕГЭ). "
-            "Отвечай структурировано. Используй заголовки и списки. "
+            "Отвечай структурировано. "
+            "Важные заголовки выделяй жирным шрифтом (через **). " 
             "Не давай решение сразу, задавай наводящие вопросы. "
             "Используй эмодзи для наглядности: 📚 для теории, 💡 для подсказок, "
             "✅ для правильных решений, ❓ для вопросов, 🎯 для важного, "
@@ -27,14 +30,14 @@ class SmartAITutor:
 
     async def get_ai_response(self, user_id: int, message: str):
         uid = str(user_id)
-        # 1. Сохраняем вопрос ученика
+        # 1. Сохраняем вопрос
         self.memory.add_message_to_history(uid, "user", message)
         
         # 2. Загружаем контекст
         history = self.memory.get_recent_context(uid)
         messages = [{"role": "system", "content": self.system_prompt}] + history
 
-        # 3. Делаем запрос к ИИ
+        # 3. Делаем запрос
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(None, lambda: self.client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -44,15 +47,14 @@ class SmartAITutor:
         
         ai_text = response.choices[0].message.content
         
-        # 4. Сохраняем ответ бота
+        # 4. Сохраняем ответ
         self.memory.add_message_to_history(uid, "assistant", ai_text)
         return ai_text
 
-# --- Инициализация (Глобальные переменные) ---
+# --- Инициализация ---
 TOKEN = os.getenv("TG_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_KEY")
 
-# Создаем объекты один раз
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 tutor = SmartAITutor(api_key=GROQ_API_KEY) 
@@ -71,30 +73,28 @@ async def start_cmd(message: types.Message):
 
 @dp.message()
 async def chat_handler(message: types.Message):
-    # Показываем статус "печатает..."
     await bot.send_chat_action(message.chat.id, "typing")
     
     try:
-        # Получаем ответ от ИИ через объект tutor
         raw_answer = await tutor.get_ai_response(message.from_user.id, message.text)
-        
-        # Форматируем текст через твой модуль styles
         pretty_answer = styles.format_bot_response(raw_answer)
         
-        # Отправляем ответ пользователю
-        await message.answer(pretty_answer, parse_mode="MarkdownV2")
+        # --- ФИКС ---
+        # Используем обычный "Markdown" (без V2). 
+        # Он самый надежный: смайлики работают, жирный текст работает.
+        await message.answer(pretty_answer, parse_mode="Markdown")
         
     except Exception as e:
-        logging.error(f"Критическая ошибка: {e}")
-        # Если ошибка, сообщаем пользователю
-        await message.answer(f"⚠️ Произошла ошибка: {e}. Попробуй позже.")
+        logging.error(f"❌ Ошибка разметки: {e}")
+        # Если вдруг Маркдаун все равно сломается (редко), 
+        # отправляем чистый текст, чтобы ты точно получил ответ!
+        await message.answer(pretty_answer)
 
-# --- Мини-сервер для Koyeb ---
+# --- Сервер для Koyeb ---
 async def handle(request):
     return web.Response(text="Bot is running!")
 
 async def main():
-    # 1. Сначала запускаем веб-сервер, чтобы Koyeb сразу увидел порт 8000
     app = web.Application()
     app.router.add_get('/', lambda r: web.Response(text="OK"))
     runner = web.AppRunner(app)
@@ -103,8 +103,6 @@ async def main():
     await site.start()
     
     print("🤖 Бот запущен! Сервер работает на порту 8000")
-    
-    # 2. Только ПОСЛЕ запуска сервера начинаем слушать Телеграм
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
