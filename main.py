@@ -1,16 +1,17 @@
-import asyncio
 from aiohttp import web
+import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from groq import Groq
-import config
+import os
 import styles
 from memory import MemoryManager
 
-# Включаем логирование, чтобы видеть ошибки в терминале
+# Включаем логирование
 logging.basicConfig(level=logging.INFO)
 
+# --- Класс твоего ИИ-тютора ---
 class SmartAITutor:
     def __init__(self, api_key):
         self.client = Groq(api_key=api_key)
@@ -44,10 +45,16 @@ class SmartAITutor:
         self.memory.add_message_to_history(uid, "assistant", ai_text)
         return ai_text
 
-# Инициализация
-tutor = SmartAITutor(config.GROQ_KEY)
-bot = Bot(token=config.TG_TOKEN)
+# --- Инициализация (Глобальные переменные) ---
+TOKEN = os.getenv("TG_TOKEN")
+GROQ_API_KEY = os.getenv("GROQ_KEY")
+
+# Создаем объекты один раз
+bot = Bot(token=TOKEN)
 dp = Dispatcher()
+tutor = SmartAITutor(api_key=GROQ_API_KEY) 
+
+# --- Хендлеры ---
 
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
@@ -59,37 +66,36 @@ async def chat_handler(message: types.Message):
     await bot.send_chat_action(message.chat.id, "typing")
     
     try:
-        # Получаем ответ от ИИ
+        # Получаем ответ от ИИ через объект tutor, который мы создали выше
         raw_answer = await tutor.get_ai_response(message.from_user.id, message.text)
         
-        # Форматируем текст
+        # Форматируем текст через твой модуль styles
         pretty_answer = styles.format_bot_response(raw_answer)
         
-        # Отправляем
+        # Отправляем ответ пользователю
         await message.answer(pretty_answer, parse_mode="HTML")
         
     except Exception as e:
-        # ЕСЛИ ОШИБКА - ОНА ПОЯВИТСЯ В ТЕРМИНАЛЕ
         logging.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА: {e}")
-        # И бот напишет тебе в личку, что сломался
+        # Если ошибка, сообщаем пользователю
         await message.answer(f"⚠️ Произошла ошибка: {e}. Попробуй позже.")
 
-
+# --- Мини-сервер для Koyeb ---
 async def handle(request):
-    return web.Response(text="OK")
+    return web.Response(text="Bot is running!")
 
 async def main():
-    # 1. Запускаем мини-сервер на порту 8000
+    # 1. Сначала запускаем веб-сервер, чтобы Koyeb сразу увидел порт 8000
     app = web.Application()
-    app.router.add_get('/', handle)
+    app.router.add_get('/', lambda r: web.Response(text="OK"))
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', 8000)
     await site.start()
     
-    print("🤖 БОТ ЗАПУЩЕН!")
+    print("🤖 БОТ ЗАПУЩЕН и сервер на порту 8000 работает!")
     
-    # 2. Запускаем самого бота
+    # 2. Только ПОСЛЕ запуска сервера начинаем слушать Телеграм
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
