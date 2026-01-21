@@ -73,7 +73,7 @@ async def chat_handler(message: types.Message):
         pretty_answer = styles.format_bot_response(raw_answer)
         
         # Отправляем ответ пользователю
-        await message.answer(pretty_answer, parse_mode="HTML")
+        await message.answer(pretty_answer, parse_mode="Markdown")
         
     except Exception as e:
         logging.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА: {e}")
