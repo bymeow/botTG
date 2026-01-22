@@ -2,9 +2,8 @@ from aiohttp import web
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types
-import kb
-from kb import main_menu
 from aiogram.filters import Command
+import kb  # Импортируем наш файл с кнопками
 from groq import Groq
 import os
 import styles
