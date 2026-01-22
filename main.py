@@ -100,9 +100,13 @@ async def show_progress(msg: types.Message):
 @dp.message()
 async def chat_handler(msg: types.Message):
     await bot.send_chat_action(msg.chat.id, "typing")
+    
+    # Получаем ответ от ИИ
     answer = await tutor.get_ai_response(msg.from_user.id, msg.text)
-    # Отправляем как обычный текст, чтобы не было ошибок с тегами
-    await msg.answer(answer)
+    
+    # ОТПРАВЛЯЕМ ОТВЕТ И ОБЯЗАТЕЛЬНО ДОБАВЛЯЕМ reply_markup
+    # Теперь кнопки будут вылезать у каждого, кто напишет боту
+    await msg.answer(answer, reply_markup=kb.main_menu())
 
 # --- Настройка сервера для Koyeb ---
 
