@@ -9,6 +9,19 @@ import styles
 from memory import MemoryManager
 import re
 
+async def handle(request):
+    """Ответ для UptimeRobot, чтобы Koyeb не засыпал"""
+    return web.Response(text="Бот живой!")
+
+async def start_web_server():
+    """Запуск мини-сервера на порту 8000"""
+    app = web.Application()
+    app.router.add_get("/", handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8000)
+    await site.start()
+
 # Включаем логирование
 logging.basicConfig(level=logging.INFO)
 
