@@ -116,7 +116,7 @@ async def show_topics(message: types.Message):
         "<i>Просто напиши номер задания или тему, и мы начнем разбор!</i>"
     )
     await message.answer(topics_text, parse_mode="HTML")
-    # Хендлер для кнопки очистки истории
+   # Хендлер для кнопки очистки истории
 @dp.message(lambda message: message.text == "🔄 Новый диалог")
 async def reset_history(message: types.Message):
     user_id = message.from_user.id
@@ -127,7 +127,9 @@ async def reset_history(message: types.Message):
     tutor.memory.save_user_data(user_id, data)
     
     await message.answer("🧼 <b>История очищена!</b> Я всё забыл, давай начнем с чистого листа.", parse_mode="HTML")
-    @dp.message(lambda message: message.text == "📉 Мой прогресс")
+
+# Хендлер для кнопки прогресса (проверь, чтобы async def был ровно под @dp)
+@dp.message(lambda message: message.text == "📉 Мой прогресс")
 async def show_progress(message: types.Message):
     user_id = message.from_user.id
     data = tutor.memory.load_user_data(user_id)
