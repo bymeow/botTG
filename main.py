@@ -63,12 +63,21 @@ tutor = SmartAITutor(api_key=os.getenv("GROQ_KEY"))
 # --- Вспомогательные функции ---
 async def get_gemini_response(prompt, model_type="flash"):
     try:
-        model = model_pro if model_type == "pro" else model_flash
-        response = await asyncio.to_thread(model.generate_content, prompt)
-        return tutor.clean_response(response.text)  # Чистим ответ Gemini
+        selected_model = model_pro if model_type == "pro" else model_flash
+        instruction = (
+            "Ты репетитор по информатике. Используй эмодзи (📚, ✅, 💡). "
+            "НИКОГДА не используй HTML-теги. Пиши только чистый текст с **жирным** через звездочки. "
+            f"Вопрос: {prompt}"
+        )
+        response = await asyncio.to_thread(selected_model.generate_content, instruction)
+        
+        # Сначала чистим текст, а ПОТОМ возвращаем его
+        cleaned_text = tutor.clean_response(response.text)
+        return cleaned_text
+        
     except Exception as e:
         logging.error(f"Gemini ошибка: {e}")
-        return "⚠️ Ошибка Gemini. Попробуй ещё раз!"
+        return "⚠️ Ошибка Gemini (возможно, лимит запросов). Попробуй ещё раз через минуту!"
 
 # --- Хендлеры ---
 @dp.message(Command("start"))
