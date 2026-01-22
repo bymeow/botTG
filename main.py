@@ -9,9 +9,11 @@ import os
 import re
 from memory import MemoryManager
 
+# Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Инициализация бота и Groq
+# Убедись, что в Koyeb добавлены TG_TOKEN и GROQ_KEY
 bot = Bot(token=os.getenv("TG_TOKEN"))
 dp = Dispatcher()
 
@@ -19,18 +21,18 @@ class SmartAITutor:
     def __init__(self, api_key):
         self.client = Groq(api_key=api_key)
         self.memory = MemoryManager()
-        # Жесткая установка: только текст и смайлики
+        # Инструкция: только текст и смайлики, НИКАКОГО жирного шрифта
         self.system_prompt = (
             "Ты — опытный репетитор по информатике (ЕГЭ). "
             "ПИШИ ТОЛЬКО ОБЫЧНЫМ ТЕКСТОМ БЕЗ ВЫДЕЛЕНИЙ. "
-            "ЗАПРЕЩЕНО: **жирный**, *курсив*, # решетки и любые HTML-теги. "
-            "ОБЯЗАТЕЛЬНО используй смайлики: 📚, 💡, ✅, ❌, 🎯. "
-            "Разделяй мысли просто новыми строками."
+            "КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО: жирный шрифт (**), курсив (*), решетки (#) и любые теги <b>. "
+            "ОБЯЗАТЕЛЬНО используй смайлики: 📚, 💡, ✅, ❌, 🎯, 🔢, 💻. "
+            "Отвечай структурированно, просто разделяя мысли новыми строками."
         )
 
     def clean_text(self, text: str) -> str:
-        """Удаляет любой мусор, если ИИ ослушался"""
-        text = re.sub(r'<[^>]+>', '', text)  # Убираем HTML
+        """Удаляет любой мусор и форматирование"""
+        text = re.sub(r'<[^>]+>', '', text)  # Убираем HTML-теги
         text = text.replace('**', '').replace('*', '').replace('`', '')
         text = re.sub(r'#{1,6}\s+', '', text)
         return text.strip()
@@ -58,21 +60,15 @@ class SmartAITutor:
 tutor = SmartAITutor(api_key=os.getenv("GROQ_KEY"))
 
 # --- Хендлеры ---
+
 @dp.message(Command("start"))
 async def start_cmd(msg: types.Message):
     await msg.answer(
         "👋 Привет! Я твой ИИ-репетитор по информатике!\n\n"
         "📚 Помогу с ЕГЭ | 💡 Объясню просто\n\n"
-        "⬇️ Используй кнопки меню",
+        "⬇️ Используй кнопки меню ниже",
         reply_markup=kb.main_menu()
     )
-
-@dp.message(lambda m: m.text == "🔄 Новый диалог")
-async def reset_history(msg: types.Message):
-    data = tutor.memory.load_user_data(msg.from_user.id)
-    data["conversation_history"] = []
-    tutor.memory.save_user_data(msg.from_user.id, data)
-    await msg.answer("🧹 История диалога очищена!")
 
 @dp.message(lambda m: m.text == "📚 Темы ЕГЭ")
 async def show_topics(msg: types.Message):
@@ -86,6 +82,41 @@ async def show_topics(msg: types.Message):
         "Задай вопрос по любой из тем!"
     )
 
-@dp.message(lambda m: m.text == "🤖 Выбор модели")
-async def choose_model(msg: types.Message):
-    await msg.answer("В текущей версии доступ
+@dp.message(lambda m: m.text == "🔄 Новый диалог")
+async def reset_history(msg: types.Message):
+    data = tutor.memory.load_user_data(msg.from_user.id)
+    data["conversation_history"] = []
+    tutor.memory.save_user_data(msg.from_user.id, data)
+    await msg.answer("🧹 История диалога очищена! Давай начнем заново.")
+
+@dp.message(lambda m: m.text == "📉 Мой прогресс")
+async def show_progress(msg: types.Message):
+    data = tutor.memory.load_user_data(msg.from_user.id)
+    count = len(data.get("conversation_history", []))
+    await msg.answer(f"📊 Твой прогресс:\n💬 Сообщений в памяти: {count}\n✅ Ты молодец, продолжаем!")
+
+# --- Главный чат (ОТПРАВКА БЕЗ ПАРС-МОДА) ---
+
+@dp.message()
+async def chat_handler(msg: types.Message):
+    await bot.send_chat_action(msg.chat.id, "typing")
+    answer = await tutor.get_ai_response(msg.from_user.id, msg.text)
+    # Отправляем как обычный текст, чтобы не было ошибок с тегами
+    await msg.answer(answer)
+
+# --- Настройка сервера для Koyeb ---
+
+async def main():
+    app = web.Application()
+    app.router.add_get('/', lambda r: web.Response(text="Bot is Live 🤖"))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    # Koyeb сам подставит нужный PORT
+    port = int(os.getenv('PORT', 8000))
+    await web.TCPSite(runner, '0.0.0.0', port).start()
+    
+    logging.info(f"🚀 Бот запущен на порту {port}")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
