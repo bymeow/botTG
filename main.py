@@ -2,6 +2,8 @@ from aiohttp import web
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types
+import kb
+from kb import main_menu
 from aiogram.filters import Command
 from groq import Groq
 import os
@@ -88,18 +90,7 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 tutor = SmartAITutor(api_key=GROQ_API_KEY) 
 
-# --- Хендлеры ---
-
-@dp.message(Command("start"))
-async def start_cmd(message: types.Message):
-    welcome_text = (
-        "👋 Привет! Я твой ИИ-репетитор по информатике!\n\n"
-        "📚 Готов помочь с подготовкой к ЕГЭ\n"
-        "💡 Задавай любые вопросы по темам\n"
-        "🎯 Разберём сложные задачи вместе!"
-    )
-    await message.answer(welcome_text)
-
+# --- Хендлеры ---   
 @dp.message()
 async def chat_handler(message: types.Message):
     await bot.send_chat_action(message.chat.id, "typing")
