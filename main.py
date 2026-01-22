@@ -7,13 +7,12 @@ import kb
 from groq import Groq
 import google.generativeai as genai
 import os
-import styles
-from memory import MemoryManager
 import re
+from memory import MemoryManager
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Инициализация
+# Инициализация Gemini
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model_flash = genai.GenerativeModel('gemini-1.5-flash')
 model_pro = genai.GenerativeModel('gemini-1.5-pro')
@@ -26,18 +25,19 @@ class SmartAITutor:
     def __init__(self, api_key):
         self.client = Groq(api_key=api_key)
         self.memory = MemoryManager()
-       self.system_prompt = (
+        self.system_prompt = (
             "Ты — опытный репетитор по информатике (ЕГЭ). "
-            "ПИШИ ТОЛЬКО ОБЫЧНЫМ ТЕКСТОМ. "
-            "ЗАПРЕЩЕНО: жирный шрифт (**), курсив (*), решетки (#) и любые теги. "
-            "ИСПОЛЬЗУЙ ЭМОДЗИ для красоты: 📚, 💡, ✅, ❌, 🎯. "
-            "Отвечай структурированно, просто разделяя мысли новыми строками."
+            "ПИШИ ТОЛЬКО ОБЫЧНЫМ ТЕКСТОМ БЕЗ ВЫДЕЛЕНИЙ. "
+            "КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО: жирный шрифт (**), курсив (*), решетки (#) и любые теги. "
+            "ОБЯЗАТЕЛЬНО ИСПОЛЬЗУЙ ЭМОДЗИ: 📚, 💡, ✅, ❌, 🎯. "
+            "Отвечай структурированно, разделяя мысли просто новыми строками."
         )
 
     def clean_response(self, text: str) -> str:
-        """Удаляет запрещённые символы"""
+        """Удаляет символы форматирования, если ИИ их все же добавил"""
         text = re.sub(r'<[^>]+>', '', text)  # Удаляем HTML
         text = re.sub(r'#{1,6}\s+', '', text)  # Удаляем решётки
+        text = text.replace('**', '').replace('*', '') # Удаляем Markdown жирный/курсив
         return text.strip()
 
     async def get_ai_response(self, user_id: int, message: str):
@@ -49,56 +49,55 @@ class SmartAITutor:
         try:
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(None, lambda: self.client.chat.completions.create(
-                model="llama-3.3-70b-versatile", messages=messages, temperature=0.7, max_tokens=2048
+                model="llama-3.3-70b-versatile", messages=messages, temperature=0.7
             ))
             ai_text = self.clean_response(response.choices[0].message.content)
             self.memory.add_message_to_history(uid, "assistant", ai_text)
             return ai_text
         except Exception as e:
             logging.error(f"Groq ошибка: {e}")
-            return "⚠️ Ошибка ИИ. Попробуй ещё раз!"
+            return "⚠️ Ошибка Groq. Попробуй ещё раз!"
 
 tutor = SmartAITutor(api_key=os.getenv("GROQ_KEY"))
 
-# --- Вспомогательные функции ---
+# --- Вспомогательные функции Gemini ---
 async def get_gemini_response(prompt, model_type="flash"):
     try:
         selected_model = model_pro if model_type == "pro" else model_flash
-        # Даем жесткую инструкцию НЕ форматировать текст
         instruction = (
             "Ты репетитор по информатике. Используй эмодзи (📚, ✅, 💡). "
-            "ПИШИ ТОЛЬКО ОБЫЧНЫМ ТЕКСТОМ. "
-            "НИКОГДА не используй жирный шрифт, курсив, решетки или HTML-теги. "
+            "ПИШИ ТОЛЬКО ОБЫЧНЫМ ТЕКСТОМ. ЗАПРЕЩЕН ЖИРНЫЙ ШРИФТ И КУРСИВ. "
             f"Вопрос: {prompt}"
         )
+        # Вызов Gemini через поток
         response = await asyncio.to_thread(selected_model.generate_content, instruction)
         
-        # Чистим на всякий случай, если ИИ ослушается
-        cleaned_text = tutor.clean_response(response.text)
-        return cleaned_text
-        
+        if not response.text:
+            return "⚠️ Gemini прислала пустой ответ."
+            
+        return tutor.clean_response(response.text)
     except Exception as e:
         logging.error(f"Gemini ошибка: {e}")
-        return "⚠️ Ошибка Gemini. Попробуй еще раз через минуту!"
+        return "⚠️ Ошибка Gemini (лимит 2 зап/мин для Pro). Попробуй позже!"
 
 # --- Хендлеры ---
 @dp.message(Command("start"))
 async def start_cmd(msg: types.Message):
     await msg.answer(
-        "👋 **Привет! Я твой ИИ-репетитор по информатике!**\n\n"
+        "👋 Привет! Я твой ИИ-репетитор по информатике!\n\n"
         "🎓 Помогу с ЕГЭ | 💡 Объясню просто | 📝 Разберу задачи\n\n"
-        "⬇️ *Используй кнопки меню*",
-        reply_markup=kb.main_menu(), parse_mode="Markdown"
+        "⬇️ Используй кнопки меню",
+        reply_markup=kb.main_menu()
     )
 
 @dp.message(lambda m: m.text == "🤖 Выбор модели")
 async def choose_model(msg: types.Message):
     data = tutor.memory.load_user_data(msg.from_user.id)
     current = data.get("current_model", "groq")
-    models = {"groq": "🚀 Groq", "flash": "⚡ Flash", "pro": "🎯 Pro"}
+    models = {"groq": "Groq", "flash": "Flash", "pro": "Pro"}
     await msg.answer(
-        f"Сейчас: **{models.get(current)}**\nВыбери модель:",
-        reply_markup=kb.model_selector(), parse_mode="Markdown"
+        f"Сейчас: {models.get(current)}\nВыбери модель:",
+        reply_markup=kb.model_selector()
     )
 
 @dp.callback_query(lambda c: c.data.startswith('set_model_'))
@@ -107,23 +106,19 @@ async def set_model(cq: types.CallbackQuery):
     data = tutor.memory.load_user_data(cq.from_user.id)
     data["current_model"] = model
     tutor.memory.save_user_data(cq.from_user.id, data)
-    emoji = {"groq": "🚀", "flash": "⚡", "pro": "🎯"}[model]
-    await cq.answer(f"Модель: {model.upper()} {emoji}")
-    await cq.message.edit_text(f"✅ Модель: **{model.upper()}** {emoji}", parse_mode="Markdown")
+    await cq.answer(f"Модель: {model.upper()}")
+    await cq.message.edit_text(f"✅ Модель изменена на: {model.upper()}")
 
 @dp.message(lambda m: m.text == "📚 Темы ЕГЭ")
 async def show_topics(msg: types.Message):
     await msg.answer(
-        "📚 **Темы ЕГЭ:**\n\n"
-        "1️⃣ Системы счисления 🔢\n"
-        "2️⃣ Алгебра логики 🧮\n"
-        "3️⃣ Алгоритмы 🔄\n"
-        "4️⃣ Программирование 💻\n"
-        "5️⃣ Кодирование 📊\n"
-        "6️⃣ БД и Excel 📈\n"
-        "7️⃣ Сети 🌐\n\n"
-        "💡 *Задай вопрос по теме!*",
-        parse_mode="Markdown"
+        "📚 Темы ЕГЭ:\n\n"
+        "1. Системы счисления 🔢\n"
+        "2. Алгебра логики 🧮\n"
+        "3. Алгоритмы 🔄\n"
+        "4. Программирование 💻\n"
+        "5. Сети 🌐\n\n"
+        "💡 Просто напиши вопрос!"
     )
 
 @dp.message(lambda m: m.text == "🔄 Новый диалог")
@@ -131,23 +126,16 @@ async def reset_history(msg: types.Message):
     data = tutor.memory.load_user_data(msg.from_user.id)
     data["conversation_history"] = []
     tutor.memory.save_user_data(msg.from_user.id, data)
-    await msg.answer("🧹 **История очищена!** ✨", parse_mode="Markdown")
+    await msg.answer("🧹 История очищена! ✨")
 
 @dp.message(lambda m: m.text == "📉 Мой прогресс")
 async def show_progress(msg: types.Message):
     data = tutor.memory.load_user_data(msg.from_user.id)
     mistakes = data.get("learning_progress", {}).get("common_mistakes", [])
-    count = len(data.get("conversation_history", []))
-    
-    if not mistakes:
-        text = f"📊 **Прогресс:**\n💬 Сообщений: {count}\n✅ Ошибок нет\n🌟 Отлично! 💪"
-    else:
-        m_list = "\n".join([f"• {m}" for m in mistakes[:5]])
-        text = f"📊 **Прогресс:**\n💬 Сообщений: {count}\n⚠️ Ошибки:\n{m_list}\n💡 Разберём их!"
-    
-    await msg.answer(text, parse_mode="Markdown")
+    text = "📊 Прогресс:\n✅ Ошибок нет" if not mistakes else f"📊 Ошибки:\n{mistakes}"
+    await msg.answer(text)
 
-# --- Основной чат ---
+# --- Основной чат (БЕЗ MARKDOWN) ---
 @dp.message()
 async def chat_handler(msg: types.Message):
     await bot.send_chat_action(msg.chat.id, "typing")
@@ -162,23 +150,20 @@ async def chat_handler(msg: types.Message):
         else:
             answer = await tutor.get_ai_response(msg.from_user.id, msg.text)
         
-        if answer:
-            pretty = styles.format_bot_response(answer)
-            await msg.answer(pretty, parse_mode="Markdown")
-        else:
-            await msg.answer("⚠️ Пустой ответ. Переформулируй вопрос.")
+        # Отправляем как обычный текст без parse_mode
+        await msg.answer(answer)
+        
     except Exception as e:
         logging.error(f"Ошибка чата: {e}")
-        await msg.answer("⚠️ Ошибка. Попробуй:\n• Другую модель 🤖\n• Новый диалог 🔄")
+        await msg.answer("⚠️ Ошибка. Попробуй сменить модель или начать новый диалог.")
 
-# --- Запуск ---
+# --- Запуск сервера для Koyeb ---
 async def main():
     app = web.Application()
-    app.router.add_get('/', lambda r: web.Response(text="Bot OK 🤖"))
+    app.router.add_get('/', lambda r: web.Response(text="Bot OK"))
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, '0.0.0.0', int(os.getenv('PORT', 8000))).start()
-    logging.info("🚀 Бот запущен!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
