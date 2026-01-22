@@ -188,6 +188,14 @@ async def process_model_selection(callback_query: types.CallbackQuery):
     
     await callback_query.answer(f"Модель изменена на {model_name.upper()}!")
     await callback_query.message.edit_text(f"✅ Теперь я использую: <b>{model_name.upper()}</b>", parse_mode="HTML")
+    # Функция для связи с Google Gemini
+async def get_gemini_response(prompt, model_type="flash"):
+    # Выбираем модель: если в кнопках нажали 'pro', берем Pro, иначе Flash
+    selected_model = model_pro if model_type == "pro" else model_flash
+    
+    # Запускаем генерацию в отдельном потоке, чтобы бот не тормозил
+    response = await asyncio.to_thread(selected_model.generate_content, prompt)
+    return response.text
 @dp.message()
 async def chat_handler(message: types.Message):
     await bot.send_chat_action(message.chat.id, "typing")
