@@ -16,3 +16,16 @@ def main_menu():
         resize_keyboard=True # Чтобы кнопки были маленькими и аккуратными
     )
     return keyboard
+
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+
+def main_menu():
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🤖 Выбор модели"), KeyboardButton(text="📚 Темы ЕГЭ")],
+            [KeyboardButton(text="📉 Мой прогресс"), KeyboardButton(text="🔄 Новый диалог")]
+        ],
+        resize_keyboard=True,
+        input_field_placeholder="Выбери раздел или задай вопрос..."
+    )
+    return keyboard
