@@ -5,6 +5,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 import kb  # Импортируем наш файл с кнопками
 from groq import Groq
+import google.generativeai as genai
 import os
 import styles
 from memory import MemoryManager
@@ -82,6 +83,15 @@ class SmartAITutor:
         return ai_text
 
 # --- Инициализация ---
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+model_flash = genai.GenerativeModel('gemini-1.5-flash')
+model_pro = genai.GenerativeModel('gemini-1.5-pro')
+
+# Обновленная функция для работы с обеими моделями
+async def get_gemini_response(prompt, model_type="flash"):
+    selected_model = model_pro if model_type == "pro" else model_flash
+    response = await asyncio.to_thread(selected_model.generate_content, prompt)
+    return response.text
 TOKEN = os.getenv("TG_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_KEY")
 
@@ -154,23 +164,54 @@ async def show_progress(message: types.Message):
     
     await message.answer(response, parse_mode="HTML")
 @dp.message()
+@dp.message(lambda message: message.text == "🤖 Выбор модели")
+async def choose_model(message: types.Message):
+    user_id = message.from_user.id
+    data = tutor.memory.load_user_data(user_id)
+    current_model = data.get("current_model", "groq") # По умолчанию Groq
+    
+    await message.answer(
+        f"Сейчас активна модель: <b>{current_model.upper()}</b>\n"
+        "Выбери, какие мозги использовать:",
+        reply_markup=kb.model_selector(),
+        parse_mode="HTML"
+    )
+    @dp.callback_query(lambda c: c.data.startswith('set_model_'))
+async def process_model_selection(callback_query: types.CallbackQuery):
+    model_name = callback_query.data.split('_')[2] # получим 'groq' или 'gemini'
+    user_id = callback_query.from_user.id
+    
+    # Сохраняем выбор в JSON
+    data = tutor.memory.load_user_data(user_id)
+    data["current_model"] = model_name
+    tutor.memory.save_user_data(user_id, data)
+    
+    await callback_query.answer(f"Модель изменена на {model_name.upper()}!")
+    await callback_query.message.edit_text(f"✅ Теперь я использую: <b>{model_name.upper()}</b>", parse_mode="HTML")
+@dp.message()
 async def chat_handler(message: types.Message):
     await bot.send_chat_action(message.chat.id, "typing")
+    user_id = message.from_user.id
     
-    try:
-        # Получаем очищенный ответ от ИИ
-        raw_answer = await tutor.get_ai_response(message.from_user.id, message.text)
-        
-        # Форматируем через styles (если там есть дополнительная обработка)
+    # Загружаем данные пользователя, чтобы узнать, какую модель он выбрал
+    data = tutor.memory.load_user_data(user_id)
+   current_model = data.get("current_model", "groq")
+
+   try:
+        if current_model == "pro":
+            raw_answer = await get_gemini_response(message.text, model_type="pro")
+        elif current_model == "flash":
+            raw_answer = await get_gemini_response(message.text, model_type="flash")
+        else:
+            # Это сработает для "groq" или если модель не выбрана
+            raw_answer = await tutor.get_ai_response(user_id, message.text)
+            
         pretty_answer = styles.format_bot_response(raw_answer)
-        
-        # Дополнительная очистка на всякий случай
-        pretty_answer = tutor.clean_response(pretty_answer)
-        
-        # Отправляем с обычным Markdown (самый надёжный)
         await message.answer(pretty_answer, parse_mode="Markdown")
         
     except Exception as e:
+        logging.error(f"Ошибка: {e}")
+        await message.answer("⚠️ Произошла ошибка при обращении к ИИ.")
         logging.error(f"Ошибка: {e}")
         # Если Markdown сломается, отправляем без форматирования
         try:
