@@ -104,6 +104,54 @@ async def start_cmd(message: types.Message):
         reply_markup=kb.main_menu(), # Берем клавиатуру из нашего файла kb.py
         parse_mode="HTML"
     )
+
+@dp.message(lambda message: message.text == "📚 Темы ЕГЭ")
+async def show_topics(message: types.Message):
+    topics_text = (
+        "<b>Ключевые темы ЕГЭ по информатике:</b>\n\n"
+        "1️⃣ <b>Основы логики</b> (Задания 2, 15)\n"
+        "2️⃣ <b>Алгоритмизация</b> (Задания 6, 12, 22)\n"
+        "3️⃣ <b>Программирование Python</b> (Задания 17, 24, 26, 27)\n"
+        "4️⃣ <b>Сети и базы данных</b> (Задания 3, 13)\n"
+        "5️⃣ <b>Обработка информации</b> (Задания 1-10)\n\n"
+        "<i>Просто напиши номер задания или тему, и мы начнем разбор!</i>"
+    )
+    await message.answer(topics_text, parse_mode="HTML")
+    # Хендлер для кнопки очистки истории
+@dp.message(lambda message: message.text == "🔄 Новый диалог")
+async def reset_history(message: types.Message):
+    user_id = message.from_user.id
+    # Загружаем данные через твой MemoryManager
+    data = tutor.memory.load_user_data(user_id)
+    # Обнуляем только историю переписки
+    data["conversation_history"] = []
+    tutor.memory.save_user_data(user_id, data)
+    
+    await message.answer("🧼 <b>История очищена!</b> Я всё забыл, давай начнем с чистого листа.", parse_mode="HTML")
+    @dp.message(lambda message: message.text == "📉 Мой прогресс")
+async def show_progress(message: types.Message):
+    user_id = message.from_user.id
+    data = tutor.memory.load_user_data(user_id)
+    
+    # Достаем список ошибок из структуры JSON
+    mistakes = data.get("learning_progress", {}).get("common_mistakes", [])
+    
+    if not mistakes:
+        response = (
+            "<b>Твой прогресс:</b>\n\n"
+            "🌟 Ты пока идешь без ошибок! Чистый лист — это круто.\n"
+            "Давай решим что-нибудь сложное?"
+        )
+    else:
+        # Формируем красивый список
+        mistakes_list = "\n".join([f"• {m}" for m in mistakes])
+        response = (
+            "<b>Твои проблемные зоны:</b>\n\n"
+            f"{mistakes_list}\n\n"
+            "💡 <i>Хочешь разобрать одну из этих тем подробнее? Просто напиши её название.</i>"
+        )
+    
+    await message.answer(response, parse_mode="HTML")
 @dp.message()
 async def chat_handler(message: types.Message):
     await bot.send_chat_action(message.chat.id, "typing")
