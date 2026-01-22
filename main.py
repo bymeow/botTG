@@ -11,21 +11,19 @@ import styles
 from memory import MemoryManager
 import re
 
-async def handle(request):
-    """Ответ для UptimeRobot, чтобы Koyeb не засыпал"""
-    return web.Response(text="Бот живой!")
-
-async def start_web_server():
-    """Запуск мини-сервера на порту 8000"""
-    app = web.Application()
-    app.router.add_get("/", handle)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', 8000)
-    await site.start()
-
-# Включаем логирование
+# --- Настройки и инициализация ---
 logging.basicConfig(level=logging.INFO)
+
+# Инициализация Gemini
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+model_flash = genai.GenerativeModel('gemini-1.5-flash')
+model_pro = genai.GenerativeModel('gemini-1.5-pro')
+
+TOKEN = os.getenv("TG_TOKEN")
+GROQ_API_KEY = os.getenv("GROQ_KEY")
+
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
 
 # --- Класс твоего ИИ-тютора ---
 class SmartAITutor:
@@ -35,183 +33,107 @@ class SmartAITutor:
         self.system_prompt = (
             "Ты — опытный репетитор по информатике (ЕГЭ). "
             "ВАЖНО: НИКОГДА не используй символы решётки (#, ##, ###) для заголовков. "
-            "НИКОГДА не используй HTML-теги (<b>, </b>, <i>, </i> и любые другие). "
+            "НИКОГДА не используй HTML-теги. "
             "Для выделения текста используй ТОЛЬКО звёздочки: *текст* для курсива, **текст** для жирного. "
-            "Отвечай структурировано, используй списки с дефисами (-) или цифрами. "
-            "Активно используй эмодзи для наглядности: 📚 теория, 💡 подсказки, "
-            "✅ правильно, ❌ ошибка, ❓ вопросы, 🎯 важное, 📝 примеры, 🔢 формулы, ⚠️ частые ошибки. "
-            "Не давай решение сразу, задавай наводящие вопросы."
+            "Отвечай структурировано. Не давай решение сразу, задавай наводящие вопросы."
         )
 
     def clean_response(self, text: str) -> str:
-        """Удаляет все запрещённые символы из ответа ИИ"""
-        # Удаляем все HTML-теги
         text = re.sub(r'<[^>]+>', '', text)
-        
-        # Удаляем решётки в начале строк (заголовки Markdown)
         text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
-        
-        # Удаляем решётки в середине текста (на всякий случай)
         text = re.sub(r'#{1,6}\s+', '', text)
-        
         return text
 
     async def get_ai_response(self, user_id: int, message: str):
         uid = str(user_id)
-        # 1. Сохраняем вопрос
         self.memory.add_message_to_history(uid, "user", message)
-        
-        # 2. Загружаем контекст
         history = self.memory.get_recent_context(uid)
         messages = [{"role": "system", "content": self.system_prompt}] + history
 
-        # 3. Делаем запрос
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(None, lambda: self.client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=messages,
             temperature=0.7
         ))
-        
-        ai_text = response.choices[0].message.content
-        
-        # 4. Очищаем ответ от запрещённых символов
-        ai_text = self.clean_response(ai_text)
-        
-        # 5. Сохраняем очищенный ответ
+        ai_text = self.clean_response(response.choices[0].message.content)
         self.memory.add_message_to_history(uid, "assistant", ai_text)
         return ai_text
 
-# --- Инициализация ---
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model_flash = genai.GenerativeModel('gemini-1.5-flash')
-model_pro = genai.GenerativeModel('gemini-1.5-pro')
+tutor = SmartAITutor(api_key=GROQ_API_KEY)
 
-# Обновленная функция для работы с обеими моделями
+# --- Вспомогательные функции ---
 async def get_gemini_response(prompt, model_type="flash"):
     selected_model = model_pro if model_type == "pro" else model_flash
     response = await asyncio.to_thread(selected_model.generate_content, prompt)
     return response.text
-TOKEN = os.getenv("TG_TOKEN")
-GROQ_API_KEY = os.getenv("GROQ_KEY")
 
-bot = Bot(token=TOKEN)
-dp = Dispatcher()
-tutor = SmartAITutor(api_key=GROQ_API_KEY) 
-
-# --- Хендлеры ---   
+# --- Хендлеры команд и меню ---
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
     welcome_text = (
         "👋 <b>Привет! Я твой ИИ-репетитор по информатике!</b>\n\n"
-        "📚 Готов помочь с подготовкой к ЕГЭ\n"
-        "🎯 Разберем сложные задачи вместе!\n\n"
-        "⬇️ <i>Используй кнопки ниже:</i>"
+        "📚 Готов помочь с подготовкой к ЕГЭ\n⬇️ <i>Используй кнопки ниже:</i>"
     )
-    await message.answer(
-        welcome_text, 
-        reply_markup=kb.main_menu(), # Берем клавиатуру из нашего файла kb.py
-        parse_mode="HTML"
-    )
+    await message.answer(welcome_text, reply_markup=kb.main_menu(), parse_mode="HTML")
 
-@dp.message(lambda message: message.text == "📚 Темы ЕГЭ")
-async def show_topics(message: types.Message):
-    topics_text = (
-        "<b>Ключевые темы ЕГЭ по информатике:</b>\n\n"
-        "1️⃣ <b>Основы логики</b> (Задания 2, 15)\n"
-        "2️⃣ <b>Алгоритмизация</b> (Задания 6, 12, 22)\n"
-        "3️⃣ <b>Программирование Python</b> (Задания 17, 24, 26, 27)\n"
-        "4️⃣ <b>Сети и базы данных</b> (Задания 3, 13)\n"
-        "5️⃣ <b>Обработка информации</b> (Задания 1-10)\n\n"
-        "<i>Просто напиши номер задания или тему, и мы начнем разбор!</i>"
-    )
-    await message.answer(topics_text, parse_mode="HTML")
-   # Хендлер для кнопки очистки истории
-@dp.message(lambda message: message.text == "🔄 Новый диалог")
-async def reset_history(message: types.Message):
-    user_id = message.from_user.id
-    # Загружаем данные через твой MemoryManager
-    data = tutor.memory.load_user_data(user_id)
-    # Обнуляем только историю переписки
-    data["conversation_history"] = []
-    tutor.memory.save_user_data(user_id, data)
-    
-    await message.answer("🧼 <b>История очищена!</b> Я всё забыл, давай начнем с чистого листа.", parse_mode="HTML")
-
-# Хендлер для кнопки прогресса (проверь, чтобы async def был ровно под @dp)
-@dp.message(lambda message: message.text == "📉 Мой прогресс")
-async def show_progress(message: types.Message):
-    user_id = message.from_user.id
-    data = tutor.memory.load_user_data(user_id)
-    
-    # Достаем список ошибок из структуры JSON
-    mistakes = data.get("learning_progress", {}).get("common_mistakes", [])
-    
-    if not mistakes:
-        response = (
-            "<b>Твой прогресс:</b>\n\n"
-            "🌟 Ты пока идешь без ошибок! Чистый лист — это круто.\n"
-            "Давай решим что-нибудь сложное?"
-        )
-    else:
-        # Формируем красивый список
-        mistakes_list = "\n".join([f"• {m}" for m in mistakes])
-        response = (
-            "<b>Твои проблемные зоны:</b>\n\n"
-            f"{mistakes_list}\n\n"
-            "💡 <i>Хочешь разобрать одну из этих тем подробнее? Просто напиши её название.</i>"
-        )
-    
-    await message.answer(response, parse_mode="HTML")
-@dp.message()
 @dp.message(lambda message: message.text == "🤖 Выбор модели")
 async def choose_model(message: types.Message):
     user_id = message.from_user.id
     data = tutor.memory.load_user_data(user_id)
-    current_model = data.get("current_model", "groq") # По умолчанию Groq
-    
+    current_model = data.get("current_model", "groq")
     await message.answer(
-        f"Сейчас активна модель: <b>{current_model.upper()}</b>\n"
-        "Выбери, какие мозги использовать:",
+        f"Сейчас активна модель: <b>{current_model.upper()}</b>\nВыбери мозги:",
         reply_markup=kb.model_selector(),
         parse_mode="HTML"
     )
-    @dp.callback_query(lambda c: c.data.startswith('set_model_'))
+
+@dp.callback_query(lambda c: c.data.startswith('set_model_'))
 async def process_model_selection(callback_query: types.CallbackQuery):
-    model_name = callback_query.data.split('_')[2] # получим 'groq' или 'gemini'
+    model_name = callback_query.data.split('_')[2]
     user_id = callback_query.from_user.id
-    
-    # Сохраняем выбор в JSON
     data = tutor.memory.load_user_data(user_id)
     data["current_model"] = model_name
     tutor.memory.save_user_data(user_id, data)
-    
     await callback_query.answer(f"Модель изменена на {model_name.upper()}!")
     await callback_query.message.edit_text(f"✅ Теперь я использую: <b>{model_name.upper()}</b>", parse_mode="HTML")
-    # Функция для связи с Google Gemini
-async def get_gemini_response(prompt, model_type="flash"):
-    # Выбираем модель: если в кнопках нажали 'pro', берем Pro, иначе Flash
-    selected_model = model_pro if model_type == "pro" else model_flash
-    
-    # Запускаем генерацию в отдельном потоке, чтобы бот не тормозил
-    response = await asyncio.to_thread(selected_model.generate_content, prompt)
-    return response.text
+
+@dp.message(lambda message: message.text == "📚 Темы ЕГЭ")
+async def show_topics(message: types.Message):
+    topics_text = "<b>Ключевые темы ЕГЭ:</b>\n1. Логика\n2. Алгоритмы\n3. Python\n4. Сети"
+    await message.answer(topics_text, parse_mode="HTML")
+
+@dp.message(lambda message: message.text == "🔄 Новый диалог")
+async def reset_history(message: types.Message):
+    user_id = message.from_user.id
+    data = tutor.memory.load_user_data(user_id)
+    data["conversation_history"] = []
+    tutor.memory.save_user_data(user_id, data)
+    await message.answer("🧼 <b>История очищена!</b>", parse_mode="HTML")
+
+@dp.message(lambda message: message.text == "📉 Мой прогресс")
+async def show_progress(message: types.Message):
+    user_id = message.from_user.id
+    data = tutor.memory.load_user_data(user_id)
+    mistakes = data.get("learning_progress", {}).get("common_mistakes", [])
+    response = "Твой прогресс чист!" if not mistakes else f"Твои ошибки: {', '.join(mistakes)}"
+    await message.answer(f"<b>{response}</b>", parse_mode="HTML")
+
+# --- Основной обработчик чата ---
 @dp.message()
 async def chat_handler(message: types.Message):
     await bot.send_chat_action(message.chat.id, "typing")
     user_id = message.from_user.id
-    
-    # Загружаем данные пользователя, чтобы узнать, какую модель он выбрал
     data = tutor.memory.load_user_data(user_id)
-   current_model = data.get("current_model", "groq")
+    current_model = data.get("current_model", "groq")
+    raw_answer = ""
 
-   try:
+    try:
         if current_model == "pro":
             raw_answer = await get_gemini_response(message.text, model_type="pro")
         elif current_model == "flash":
             raw_answer = await get_gemini_response(message.text, model_type="flash")
         else:
-            # Это сработает для "groq" или если модель не выбрана
             raw_answer = await tutor.get_ai_response(user_id, message.text)
             
         pretty_answer = styles.format_bot_response(raw_answer)
@@ -219,18 +141,13 @@ async def chat_handler(message: types.Message):
         
     except Exception as e:
         logging.error(f"Ошибка: {e}")
-        await message.answer("⚠️ Произошла ошибка при обращении к ИИ.")
-        logging.error(f"Ошибка: {e}")
-        # Если Markdown сломается, отправляем без форматирования
         try:
-            await message.answer(raw_answer)
+            # Пытаемся отправить текст без форматирования, если Markdown подвел
+            await message.answer(raw_answer if raw_answer else "⚠️ Ошибка связи с ИИ.")
         except:
-            await message.answer("⚠️ Произошла ошибка. Попробуй переформулировать вопрос.")
+            await message.answer("⚠️ Произошла ошибка. Попробуй позже.")
 
-# --- Сервер для Koyeb ---
-async def handle(request):
-    return web.Response(text="Bot is running!")
-
+# --- Запуск сервера для Koyeb ---
 async def main():
     app = web.Application()
     app.router.add_get('/', lambda r: web.Response(text="OK"))
@@ -239,7 +156,7 @@ async def main():
     site = web.TCPSite(runner, '0.0.0.0', 8000)
     await site.start()
     
-    print("Бот запущен! Сервер работает на порту 8000")
+    logging.info("Бот запущен!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
