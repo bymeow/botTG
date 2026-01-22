@@ -91,6 +91,19 @@ dp = Dispatcher()
 tutor = SmartAITutor(api_key=GROQ_API_KEY) 
 
 # --- Хендлеры ---   
+@dp.message(Command("start"))
+async def start_cmd(message: types.Message):
+    welcome_text = (
+        "👋 <b>Привет! Я твой ИИ-репетитор по информатике!</b>\n\n"
+        "📚 Готов помочь с подготовкой к ЕГЭ\n"
+        "🎯 Разберем сложные задачи вместе!\n\n"
+        "⬇️ <i>Используй кнопки ниже:</i>"
+    )
+    await message.answer(
+        welcome_text, 
+        reply_markup=kb.main_menu(), # Берем клавиатуру из нашего файла kb.py
+        parse_mode="HTML"
+    )
 @dp.message()
 async def chat_handler(message: types.Message):
     await bot.send_chat_action(message.chat.id, "typing")
