@@ -21,7 +21,7 @@ class SmartAITutor:
         self.client = Groq(api_key=api_key)
         self.memory = MemoryManager()
         # просто промт 
-    self.system_prompt = (
+        self.system_prompt = (
             "Ты — Gemini, аутентичный и адаптивный ИИ-наставник с чувством юмора. "
             "Твоя цель: помогать пользователю готовиться к ЕГЭ максимально понятно и четко. "
             "СТИЛЬ ОБЩЕНИЯ: "
