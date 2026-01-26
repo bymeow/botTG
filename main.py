@@ -1,7 +1,7 @@
 from aiohttp import web
 import asyncio
 import logging
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 import kb
 from groq import Groq
@@ -12,8 +12,7 @@ from memory import MemoryManager
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Инициализация бота и Groq
-# Убедись, что в Koyeb добавлены TG_TOKEN и GROQ_KEY
+# Инициализация
 bot = Bot(token=os.getenv("TG_TOKEN"))
 dp = Dispatcher()
 
@@ -21,18 +20,15 @@ class SmartAITutor:
     def __init__(self, api_key):
         self.client = Groq(api_key=api_key)
         self.memory = MemoryManager()
-        # Инструкция: только текст и смайлики, НИКАКОГО жирного шрифта
+        # Базовый промпт. Мы будем уточнять предмет динамически.
         self.system_prompt = (
-            "Ты — опытный репетитор по информатике (ЕГЭ). "
-            "ПИШИ ТОЛЬКО ОБЫЧНЫМ ТЕКСТОМ БЕЗ ВЫДЕЛЕНИЙ. "
-            "КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО: жирный шрифт (**), курсив (*), решетки (#) и любые теги <b>. "
-            "ОБЯЗАТЕЛЬНО используй смайлики: 📚, 💡, ✅, ❌, 🎯, 🔢, 💻. "
-            "Отвечай структурированно, просто разделяя мысли новыми строками."
+            "Ты — опытный репетитор для подготовки к ЕГЭ. "
+            "ПИШИ ТОЛЬКО ОБЫЧНЫМ ТЕКСТОМ. ЗАПРЕЩЕНО: жирный шрифт (**), Markdown, HTML теги. "
+            "Используй смайлики. Отвечай кратко, по делу и структурированно."
         )
 
     def clean_text(self, text: str) -> str:
-        """Удаляет любой мусор и форматирование"""
-        text = re.sub(r'<[^>]+>', '', text)  # Убираем HTML-теги
+        text = re.sub(r'<[^>]+>', '', text)
         text = text.replace('**', '').replace('*', '').replace('`', '')
         text = re.sub(r'#{1,6}\s+', '', text)
         return text.strip()
@@ -55,70 +51,88 @@ class SmartAITutor:
             return ai_text
         except Exception as e:
             logging.error(f"Groq Error: {e}")
-            return "⚠️ Ошибка связи с сервером. Попробуй еще раз!"
+            return "⚠️ Ошибка связи. Попробуй еще раз!"
+
+    # Метод для смены роли (предмета)
+    def change_subject(self, user_id: int, subject_name: str):
+        instruction = (
+            f"ВНИМАНИЕ: Пользователь сменил предмет. "
+            f"Теперь ты репетитор по предмету: {subject_name.upper()}. "
+            f"Забудь про информатику, если спрашивали ранее. "
+            f"Готовь пользователя к ЕГЭ по предмету {subject_name}."
+        )
+        # Добавляем скрытую инструкцию в историю диалога
+        self.memory.add_message_to_history(str(user_id), "system", instruction)
 
 tutor = SmartAITutor(api_key=os.getenv("GROQ_KEY"))
 
-# --- Хендлеры ---
+# --- ХЕНДЛЕРЫ ---
 
 @dp.message(Command("start"))
 async def start_cmd(msg: types.Message):
     await msg.answer(
-        "👋 Привет! Я твой ИИ-репетитор по информатике!\n\n"
-        "📚 Помогу с ЕГЭ | 💡 Объясню просто\n\n"
-        "⬇️ Используй кнопки меню ниже",
+        "👋 Привет! Я твой универсальный ИИ-репетитор!\n\n"
+        "🎓 Готовлю к ЕГЭ по всем предметам.\n"
+        "⬇️ Нажми «Выбрать предмет» в меню ниже, чтобы начать!",
         reply_markup=kb.main_menu()
     )
 
-@dp.message(lambda m: m.text == "📚 Темы ЕГЭ")
-async def show_topics(msg: types.Message):
-    await msg.answer(
-        "📚 Темы ЕГЭ по информатике:\n\n"
-        "1. Системы счисления 🔢\n"
-        "2. Логика 🧮\n"
-        "3. Алгоритмы 🔄\n"
-        "4. Программирование 💻\n"
-        "5. Сети 🌐\n\n"
-        "Задай вопрос по любой из тем!"
-    )
+# 1. Обработка нажатия на кнопку "Выбрать предмет"
+@dp.message(lambda m: m.text == "🎓 Выбрать предмет")
+async def ask_subject(msg: types.Message):
+    await msg.answer("Какой предмет будем учить?", reply_markup=kb.subjects_inline())
 
+# 2. Обработка выбора конкретного предмета (Inline кнопки)
+@dp.callback_query(lambda c: c.data.startswith('set_subj_'))
+async def set_subject_handler(cq: types.CallbackQuery):
+    # Словарь для перевода кода в название
+    subjects = {
+        "math": "Математика 📐", "info": "Информатика 💻",
+        "rus": "Русский язык 🇷🇺", "soc": "Обществознание 📜",
+        "phys": "Физика ⚛️", "chem": "Химия 🧪",
+        "bio": "Биология 🧬", "hist": "История 🏺",
+        "eng": "Английский язык 🇬🇧", "geo": "География 🌍"
+    }
+    
+    code = cq.data.split('_')[2]
+    subject_name = subjects.get(code, "Предмет")
+    
+    # Меняем "мозги" боту
+    tutor.change_subject(cq.from_user.id, subject_name)
+    
+    await cq.answer(f"Выбрано: {subject_name}")
+    await cq.message.edit_text(f"✅ Отлично! Теперь я твой репетитор по предмету: **{subject_name}**.\n\nЗадай мне любой вопрос или попроси задачу!")
+
+# Остальные кнопки
 @dp.message(lambda m: m.text == "🔄 Новый диалог")
 async def reset_history(msg: types.Message):
     data = tutor.memory.load_user_data(msg.from_user.id)
     data["conversation_history"] = []
     tutor.memory.save_user_data(msg.from_user.id, data)
-    await msg.answer("🧹 История диалога очищена! Давай начнем заново.")
+    await msg.answer("🧹 История очищена! Можешь выбрать новый предмет.")
 
 @dp.message(lambda m: m.text == "📉 Мой прогресс")
 async def show_progress(msg: types.Message):
     data = tutor.memory.load_user_data(msg.from_user.id)
     count = len(data.get("conversation_history", []))
-    await msg.answer(f"📊 Твой прогресс:\n💬 Сообщений в памяти: {count}\n✅ Ты молодец, продолжаем!")
+    await msg.answer(f"📊 Сообщений в этом диалоге: {count}\nТы молодец!")
 
-# --- Главный чат (ОТПРАВКА БЕЗ ПАРС-МОДА) ---
-
+# Главный чат
 @dp.message()
 async def chat_handler(msg: types.Message):
     await bot.send_chat_action(msg.chat.id, "typing")
-    
-    # Получаем ответ от ИИ
     answer = await tutor.get_ai_response(msg.from_user.id, msg.text)
-    
-    # ОТПРАВЛЯЕМ ОТВЕТ И ОБЯЗАТЕЛЬНО ДОБАВЛЯЕМ reply_markup
-    # Теперь кнопки будут вылезать у каждого, кто напишет боту
+    # Отправляем ответ и на всякий случай обновляем клавиатуру
     await msg.answer(answer, reply_markup=kb.main_menu())
 
-# --- Настройка сервера для Koyeb ---
-
+# --- ЗАПУСК ДЛЯ RENDER ---
 async def main():
     app = web.Application()
-    app.router.add_get('/', lambda r: web.Response(text="Bot is Live 🤖"))
+    app.router.add_get('/', lambda r: web.Response(text="Bot is Live"))
     runner = web.AppRunner(app)
     await runner.setup()
-    # Koyeb сам подставит нужный PORT
-    port = int(os.getenv('PORT', 8000))
+    port = int(os.getenv('PORT', 10000))
     await web.TCPSite(runner, '0.0.0.0', port).start()
-    
     logging.info(f"🚀 Бот запущен на порту {port}")
     await dp.start_polling(bot)
 
