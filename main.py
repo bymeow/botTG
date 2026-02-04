@@ -3,7 +3,7 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-import kb
+import kb  # Убедись, что файл kb.py лежит рядом
 from groq import Groq
 import os
 import re
@@ -20,8 +20,8 @@ class SmartAITutor:
     def __init__(self, api_key):
         self.client = Groq(api_key=api_key)
         self.memory = MemoryManager()
-        # просто промт 
-       # Обновленный промпт для полиглота
+        
+        # Обновленный промпт для полиглота
         self.system_prompt = (
             "Ты — Gemini, мультиязычный ИИ-наставник (Русский, English, Español). "
             "Твоя цель: помогать пользователю готовиться к экзаменам. "
@@ -86,15 +86,60 @@ async def start_cmd(msg: types.Message):
         reply_markup=kb.main_menu()
     )
 
-# 1. Обработка нажатия на кнопку "Выбрать предмет"
+# 1. Обработка нажатия на кнопку "Выбрать предмет" (Текстовая кнопка)
 @dp.message(lambda m: m.text == "🎓 Выбрать предмет")
 async def ask_subject(msg: types.Message):
-    await msg.answer("Какой предмет будем учить?", reply_markup=kb.subjects_inline())
+    # Тут используем get_main_keyboard(), если там есть кнопка языка и предметов
+    await msg.answer("Выбери действие:", reply_markup=kb.get_main_keyboard())
 
-# 2. Обработка выбора конкретного предмета (Inline кнопки)
+# --- БЛОК ЯЗЫКОВЫХ НАСТРОЕК (НОВОЕ) ---
+
+# 2. Обработка нажатия "🌐 Язык / Language" (открывает список языков)
+@dp.callback_query(lambda c: c.data == "lang_menu")
+async def show_language_menu(callback: types.CallbackQuery):
+    await callback.message.edit_text(
+        "Выбери язык / Choose language / Elige idioma:", 
+        reply_markup=kb.get_language_keyboard()
+    )
+    await callback.answer()
+
+# 3. Обработка выбора конкретного языка
+@dp.callback_query(lambda c: c.data.startswith('lang_'))
+async def set_language_handler(callback: types.CallbackQuery):
+    lang_code = callback.data.split('_')[1]
+    
+    # Инструкции для ИИ
+    prompts = {
+        "ru": "Перейди на русский язык. Общайся как крутой наставник-бро.",
+        "en": "Switch to English. Speak like a cool mentor and friend.",
+        "es": "Cambia al español. Habla como un mentor y amigo genial."
+    }
+    
+    # Ответ пользователю
+    confirm = {
+        "ru": "Принято! Теперь ботаем на русском 🇷🇺",
+        "en": "Got it! English mode is on 🇺🇸",
+        "es": "¡Vale! Ahora hablamos español 🇪🇸"
+    }
+
+    # Записываем смену языка в память
+    user_id = callback.from_user.id
+    tutor.memory.add_message_to_history(str(user_id), "system", prompts.get(lang_code, "ru"))
+    
+    await callback.message.answer(confirm.get(lang_code, "ru"))
+    await callback.answer()
+
+# --- БЛОК ПРЕДМЕТОВ ---
+
+# 4. Открытие списка предметов (если нажали "Выбрать предмет" в инлайн меню)
+@dp.callback_query(lambda c: c.data == "choose_subject")
+async def show_subjects_inline(callback: types.CallbackQuery):
+    await callback.message.edit_text("Какой предмет будем учить?", reply_markup=kb.subjects_inline())
+    await callback.answer()
+
+# 5. Обработка выбора конкретного предмета
 @dp.callback_query(lambda c: c.data.startswith('set_subj_'))
 async def set_subject_handler(cq: types.CallbackQuery):
-    # Словарь для перевода кода в название
     subjects = {
         "math": "Математика 📐", "info": "Информатика 💻",
         "rus": "Русский язык 🇷🇺", "soc": "Обществознание 📜",
@@ -106,13 +151,13 @@ async def set_subject_handler(cq: types.CallbackQuery):
     code = cq.data.split('_')[2]
     subject_name = subjects.get(code, "Предмет")
     
-    # Меняем "мозги" боту
     tutor.change_subject(cq.from_user.id, subject_name)
     
     await cq.answer(f"Выбрано: {subject_name}")
     await cq.message.edit_text(f"✅ Отлично! Теперь я твой репетитор по предмету: **{subject_name}**.\n\nЗадай мне любой вопрос или попроси задачу!")
 
-# Остальные кнопки
+# --- ДОПОЛНИТЕЛЬНЫЕ КНОПКИ ---
+
 @dp.message(lambda m: m.text == "🔄 Новый диалог")
 async def reset_history(msg: types.Message):
     data = tutor.memory.load_user_data(msg.from_user.id)
@@ -126,12 +171,11 @@ async def show_progress(msg: types.Message):
     count = len(data.get("conversation_history", []))
     await msg.answer(f"📊 Сообщений в этом диалоге: {count}\nТы молодец!")
 
-# Главный чат
+# Главный чат (должен быть последним)
 @dp.message()
 async def chat_handler(msg: types.Message):
     await bot.send_chat_action(msg.chat.id, "typing")
     answer = await tutor.get_ai_response(msg.from_user.id, msg.text)
-    # Отправляем ответ и на всякий случай обновляем клавиатуру
     await msg.answer(answer, reply_markup=kb.main_menu())
 
 # --- ЗАПУСК ДЛЯ RENDER ---
