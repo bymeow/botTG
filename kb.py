@@ -41,28 +41,3 @@ def get_main_keyboard():
     ])
     return keyboard
 
-# Обработка выбора языка
-@dp.callback_query(lambda c: c.data.startswith('lang_'))
-async def set_language(callback: types.CallbackQuery):
-    lang_code = callback.data.split('_')[1]
-    
-    # Инструкции для ИИ на разных языках
-    prompts = {
-        "ru": "Перейди на русский язык. Общайся как крутой наставник-бро.",
-        "en": "Switch to English. Speak like a cool mentor and friend.",
-        "es": "Cambia al español. Habla como un mentor y amigo genial."
-    }
-    
-    # Текст подтверждения
-    confirm = {
-        "ru": "Принято! Теперь ботаем на русском 🇷🇺",
-        "en": "Got it! English mode is on 🇺🇸",
-        "es": "¡Vale! Ahora hablamos español 🇪🇸"
-    }
-
-    # Записываем команду в память бота (он увидит это как системную установку)
-    user_id = callback.from_user.id
-    ai_tutor.memory.add_message_to_history(str(user_id), "system", prompts.get(lang_code))
-    
-    await callback.message.answer(confirm.get(lang_code))
-    await callback.answer()
